@@ -81,7 +81,7 @@ class BiLSTM_CRF(nn.Module):
         init_alphas[:, self.tag_to_ix[START_TAG]] = 0
         # Wrap in a variable so that we will get automatic backprop
         forward_var = init_alphas
-        cre, cre_maxtrix = self.mask_maxtric(lengths)
+
 
         forward_var_table = torch.zeros((len(lengths), lengths[0], self.tagset_size - 1))
         # Iterate through the sentence
@@ -91,14 +91,13 @@ class BiLSTM_CRF(nn.Module):
             for next_tag in range(self.tagset_size-1):
                 # broadcast the emission score: it is the same regardless of
                 # the previous tag
-                feat= cre[:, i].unsqueeze(1) * feat
                 temp = feat[:, next_tag]
                 temp = temp.view(batch_size,-1)
                 temp = temp.repeat(1,self.tagset_size-1)
                 emit_score = temp
                 # the ith entry of trans_score is the score of transitioning to
                 # next_tag from i
-                trans_score = cre[:, i].unsqueeze(1) * self.transitions[next_tag].unsqueeze(0)
+                trans_score = self.transitions[next_tag]
 
                 # The ith entry of next_tag_var is the value for the
                 # edge (i -> next_tag) before we do log-sum-exp
@@ -143,7 +142,7 @@ class BiLSTM_CRF(nn.Module):
         tags = torch.cat([start, tags], dim=1)
         for i in range(lengths[0]):
 
-            feat = feats[: ,i, :]
+            feat = feats[:,i, :]
             trans_ = self.transitions[tags[:,i + 1]]
             trans_ = torch.gather(trans_,1,tags[:,i].unsqueeze(1))
             trans = cre[:,i].unsqueeze(1) * trans_
@@ -151,10 +150,10 @@ class BiLSTM_CRF(nn.Module):
             emit_ = torch.gather(feat,1,idxs)
             emit = cre[:, i].unsqueeze(1) * emit_
             score = score + trans +emit
-        last_score = self.transitions[self.tag_to_ix[STOP_TAG], tags[:,-1]]
-
-        score = score.squeeze(1) + last_score
-        return score
+        last_tags = torch.gather(tags, 1, torch.tensor(lengths).unsqueeze(1))
+        last_score = self.transitions[self.tag_to_ix[STOP_TAG], last_tags]
+        score = score + last_score
+        return score.squeeze(1)
 
     def mask_maxtric(self,lengths):
         """
@@ -188,7 +187,6 @@ class BiLSTM_CRF(nn.Module):
         batch_size = feats.size()[0]
         init_vvars = torch.full((batch_size, self.tagset_size-1), -10000.)
         init_vvars[:, self.tag_to_ix[START_TAG]] = 0
-        cre,cre_maxtrix = self.mask_maxtric(lengths)
         backpointers = []
 
         # forward_var at step i holds the viterbi variables for step i-1
@@ -205,7 +203,7 @@ class BiLSTM_CRF(nn.Module):
                 # We don't include the emission scores here because the max
                 # does not depend on them (we add them in below)
 
-                next_tag_var = forward_var +cre[:,i].unsqueeze(1)* self.transitions[next_tag].unsqueeze(0)
+                next_tag_var = forward_var +self.transitions[next_tag]
                 best_tag_id = torch.argmax(next_tag_var,dim=1).unsqueeze(1)
                 bptrs_t.append(best_tag_id)
                 best_node_score = torch.gather(next_tag_var, dim=1, index=best_tag_id)
@@ -263,6 +261,7 @@ class BiLSTM_CRF(nn.Module):
         feats = self._get_lstm_features(sentence,lengths)
         forward_score = self._forward_alg(feats)
         gold_score = self._score_sentence(feats, tags)
+        print(forward_score-gold_score)
         return torch.mean(forward_score - gold_score)
 
 
@@ -338,6 +337,9 @@ if __name__ == '__main__':
 
         # Step 2. Get our inputs ready for the network, that is,
         # turn them into Tensors of word indices.
+        # sentence_in, lengths,idx_sort = prepare_sequence([training_data[0][0],training_data[1][0]], word_to_ix)
+        # targets = [torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long) for tags in [training_data[0][1],training_data[1][1]]]
+        # targets = pad_sequence(targets,batch_first=True)[idx_sort]
         sentence_in, lengths,idx_sort = prepare_sequence(x_trains, word_to_ix)
         targets = [torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long) for tags in tag_trains]
         targets = pad_sequence(targets,batch_first=True)[idx_sort]
