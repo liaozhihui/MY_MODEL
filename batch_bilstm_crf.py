@@ -261,7 +261,6 @@ class BiLSTM_CRF(nn.Module):
         feats = self._get_lstm_features(sentence,lengths)
         forward_score = self._forward_alg(feats)
         gold_score = self._score_sentence(feats, tags)
-        print(forward_score-gold_score)
         return torch.mean(forward_score - gold_score)
 
 
@@ -295,7 +294,7 @@ if __name__ == '__main__':
     training_datas=[]
 
 
-    for _ in range(32):
+    for _ in range(8):
         training_datas.append(training_data.copy())
 
     x_trains =[]
