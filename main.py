@@ -2,8 +2,7 @@ from NerDataLoader import prepare_copus, NerDataset, collate_fn, DataLoader
 from batch_bilstm_crf import *
 import torch
 
-a = torch.tensor([1,2,3]).numpy()
-print(list(a))
+
 file_path = "./ResumeNER/train.char.bmes"
 
 word_to_ix, tag_to_ix, word_list, tag_list = prepare_copus(file_path)
