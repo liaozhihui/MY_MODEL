@@ -1,6 +1,9 @@
 from NerDataLoader import prepare_copus, NerDataset, collate_fn, DataLoader
 from batch_bilstm_crf import *
+import torch
 
+a = torch.tensor([1,2,3]).numpy()
+print(list(a))
 file_path = "./ResumeNER/train.char.bmes"
 
 word_to_ix, tag_to_ix, word_list, tag_list = prepare_copus(file_path)
@@ -26,12 +29,15 @@ for i in range(30):
         optimizer.step()
         print(f"batch_{j} finished")
         j+=1
+    torch.save(model.state_dict(), "./bi_crf.pt")
 
 with torch.no_grad():
     print(tag_list[0])
     precheck_sent,lenghts,_ = prepare_sequence([word_list[0]], word_to_ix)
     result = model(precheck_sent,lenghts,mode="dev")
-    print([ix_to_tag[ix] for ix in result])
+    print(result)
+    path = result[1]
+    print([ix_to_tag[ix] for ix in list(path[0].numpy())])
 
 
 
