@@ -1,12 +1,14 @@
 import torch
-import torch.autograd as autograd
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn.utils.rnn import pad_packed_sequence,pad_sequence,pack_padded_sequence
 
 
 torch.manual_seed(1)
-
+EMBEDDING_DIM = 64
+HIDDEN_DIM = 32
+START_TAG = "<START>"
+STOP_TAG = "<STOP>"
 def argmax(vec):
     # return the argmax as a python int
     _, idx = torch.max(vec, 1)
@@ -67,7 +69,7 @@ class BiLSTM_CRF(nn.Module):
         return (torch.randn(2, 2, self.hidden_dim // 2),
                 torch.randn(2, 2, self.hidden_dim // 2))
 
-    def _forward_alg(self, feats):
+    def _forward_alg(self, feats,lengths):
         if len(feats.size()) == 2:
             feats = feats.unsqueeze(0)
         # Initialize the viterbi variables in log space
@@ -134,7 +136,7 @@ class BiLSTM_CRF(nn.Module):
 
         return lstm_feats
 
-    def _score_sentence(self, feats, tags):
+    def _score_sentence(self, feats, tags, lengths):
         # Gives the score of a provided tag sequence
         cre, cre_maxtrix = self.mask_maxtric(lengths)
         score = torch.zeros((feats.size()[0], 1))
@@ -167,9 +169,9 @@ class BiLSTM_CRF(nn.Module):
         :return:
         """
         cre = torch.zeros((len(lengths), lengths[0]))
-        cre_maxtrix = torch.ones((len(lengths), lengths[0],len(tag_to_ix)))
+        cre_maxtrix = torch.ones((len(lengths), lengths[0],len(self.tag_to_ix)))
         for i, lens in enumerate(lengths):
-            one = torch.zeros(len(tag_to_ix))
+            one = torch.zeros(len(self.tag_to_ix))
             one[-1] = 1
             cre[i][:lens] = 1
             cre_maxtrix[i][lens-1:] = one
@@ -259,8 +261,8 @@ class BiLSTM_CRF(nn.Module):
 
     def neg_log_likelihood(self, sentence, tags,lengths):
         feats = self._get_lstm_features(sentence,lengths)
-        forward_score = self._forward_alg(feats)
-        gold_score = self._score_sentence(feats, tags)
+        forward_score = self._forward_alg(feats,lengths)
+        gold_score = self._score_sentence(feats, tags,lengths)
         return torch.mean(forward_score - gold_score)
 
 
@@ -277,8 +279,8 @@ if __name__ == '__main__':
     START_TAG = "<START>"
     STOP_TAG = "<STOP>"
     PAD = "<PAD>"
-    EMBEDDING_DIM = 5
-    HIDDEN_DIM = 4
+    EMBEDDING_DIM = 64
+    HIDDEN_DIM = 32
 
     # Make up some training data
     training_data = [(
@@ -314,7 +316,7 @@ if __name__ == '__main__':
 
     model = BiLSTM_CRF(len(word_to_ix), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
 
-    optimizer = optim.SGD(model.parameters(), lr=0.01, weight_decay=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-4)
 
     # Check predictions before training
     with torch.no_grad():
