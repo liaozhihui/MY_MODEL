@@ -1,11 +1,14 @@
-from NerDataLoader import prepare_copus, NerDataset, collate_fn, DataLoader
+from NerDataLoader import prepare_copus, NerDataset, collate_fn, DataLoader,validator
 from batch_bilstm_crf import *
 import torch
 
 
 file_path = "./ResumeNER/train.char.bmes"
-
+test_file_path = "./ResumeNER/test.char.bmes"
+dev_file_path = "./ResumeNER/dev.char.bmes"
+dev_word_to_ix, dev_tag_to_ix, dev_word_list, dev_tag_list = prepare_copus(dev_file_path)
 word_to_ix, tag_to_ix, word_list, tag_list = prepare_copus(file_path)
+test_word_to_ix, test_tag_to_ix, test_word_list, test_tag_list = prepare_copus(test_file_path)
 ix_to_tag = dict(zip(tag_to_ix.values(),tag_to_ix.keys()))
 nerdataset = NerDataset(file_path)
 
@@ -14,9 +17,10 @@ dataLoader = DataLoader(dataset=nerdataset, batch_size=64, shuffle=True, drop_la
 model = BiLSTM_CRF(len(word_to_ix), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
 optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-4)
 
+best_val_loss = 1000
 for i in range(30):
-    print(f"epoch {i+1} start............")
     j=1
+    model.train()
     for dataiter in dataLoader:
         model.zero_grad()
         x_trains, tag_trains = dataiter
@@ -26,9 +30,13 @@ for i in range(30):
         loss = model.neg_log_likelihood(sentence_in, targets, lengths)
         loss.backward()
         optimizer.step()
-        print(f"batch_{j} finished")
+        print(f"epoch {i+1}, batch_{j}: Loss:{loss:.4f}")
         j+=1
-    torch.save(model.state_dict(), "./bi_crf.pt")
+    val_loss = validator(model,prepare_sequence,word_to_ix,tag_to_ix,dev_word_list,dev_tag_list)
+    if val_loss <best_val_loss:
+        torch.save(model.state_dict(), "./bi_crf.pt")
+        best_val_loss = val_loss
+        print(f"epoch {i+1},val_loss:{best_val_loss:.4f}")
 
 with torch.no_grad():
     print(tag_list[0])

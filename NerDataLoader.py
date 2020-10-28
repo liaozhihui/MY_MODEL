@@ -1,6 +1,6 @@
-
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
-
+import torch
 file_path = "./ResumeNER/train.char.bmes"
 
 def prepare_copus(file_path):
@@ -29,11 +29,17 @@ def prepare_copus(file_path):
                 words = []
                 tags = []
         tag_to_id["<pad>"]=len(tag_to_id)
-
+    word_to_id["<UNK>"]=len(word_to_id)
     return word_to_id, tag_to_id, word_list, tag_list
 
 
-
+def validator(model,prepare_sequence,word_to_ix,tag_to_ix,dev_word_list,dev_tag_list):
+    model.eval()
+    sentence_in, lengths, idx_sort = prepare_sequence(dev_word_list, word_to_ix)
+    targets = [torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long) for tags in dev_tag_list]
+    targets = pad_sequence(targets, batch_first=True)[idx_sort]
+    loss = model.neg_log_likelihood(sentence_in, targets, lengths)
+    return loss.item()
 
 class NerDataset(Dataset):
 

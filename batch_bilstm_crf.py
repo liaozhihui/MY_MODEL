@@ -3,12 +3,13 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.nn.utils.rnn import pad_packed_sequence,pad_sequence,pack_padded_sequence
 
-
+use_gpu = torch.cuda.is_available()
 torch.manual_seed(1)
 EMBEDDING_DIM = 64
 HIDDEN_DIM = 32
 START_TAG = "<START>"
 STOP_TAG = "<STOP>"
+UNK = "<UNK>"
 def argmax(vec):
     # return the argmax as a python int
     _, idx = torch.max(vec, 1)
@@ -16,7 +17,7 @@ def argmax(vec):
 
 
 def prepare_sequence(seqs, word_to_ix):
-    idxs = [torch.tensor([word_to_ix[w] for w in seq],dtype=torch.long) for seq in seqs]
+    idxs = [torch.tensor([word_to_ix.get(w,word_to_ix.get(UNK)) for w in seq],dtype=torch.long) for seq in seqs]
     lengths_ = list(map(len,idxs))
     _,idx_sort = torch.sort(torch.tensor(lengths_),descending=True)
     idxs = sorted(idxs,key=lambda x:len(x),reverse=True)
@@ -328,6 +329,8 @@ if __name__ == '__main__':
         print(model(precheck_sent,lengths,mode="train"))
 
     # Make sure prepare_sequence from earlier in the LSTM section is loaded
+    if use_gpu:
+        model = model.cuda()
     import time
     start_time = time.time()
     for epoch in range(
@@ -346,7 +349,13 @@ if __name__ == '__main__':
         targets = pad_sequence(targets,batch_first=True)[idx_sort]
 
         # Step 3. Run our forward pass.
+        if use_gpu:
+            sentence_in = sentence_in.cuda()
+            targets = targets.cuda()
         loss = model.neg_log_likelihood(sentence_in, targets,lengths)
+        if use_gpu:
+
+            loss=loss.cuda()
 
         # Step 4. Compute the loss, gradients, and update the parameters by
         # calling optimizer.step()
