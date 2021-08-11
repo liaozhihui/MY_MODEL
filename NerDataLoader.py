@@ -2,6 +2,8 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
 import torch
 file_path = "./ResumeNER/train.char.bmes"
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 
 def prepare_copus(file_path):
 
@@ -36,9 +38,9 @@ def prepare_copus(file_path):
 def validator(model,prepare_sequence,word_to_ix,tag_to_ix,dev_word_list,dev_tag_list):
     model.eval()
     sentence_in, lengths, idx_sort = prepare_sequence(dev_word_list, word_to_ix)
-    targets = [torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long) for tags in dev_tag_list]
+    targets = [torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long,device=device) for tags in dev_tag_list]
     targets = pad_sequence(targets, batch_first=True)[idx_sort]
-    loss = model.neg_log_likelihood(sentence_in, targets, lengths)
+    loss = model.neg_log_likelihood(sentence_in.to(device), targets.to(device), lengths)
     return loss.item()
 
 class NerDataset(Dataset):
