@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn.utils.rnn import pad_packed_sequence,pad_sequence,pack_padded_sequence
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 
 use_gpu = torch.cuda.is_available()
 torch.manual_seed(1)
@@ -67,8 +69,8 @@ class BiLSTM_CRF(nn.Module):
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return (torch.randn(2, 2, self.hidden_dim // 2),
-                torch.randn(2, 2, self.hidden_dim // 2))
+        return (torch.randn(2, 2, self.hidden_dim // 2,device=device),
+                torch.randn(2, 2, self.hidden_dim // 2,device=device))
 
     def _forward_alg(self, feats,lengths):
         if len(feats.size()) == 2:
@@ -78,7 +80,7 @@ class BiLSTM_CRF(nn.Module):
         batch_size = feats.size()[0]
 
         # Do the forward algorithm to compute the partition function
-        init_alphas = torch.full((batch_size, self.tagset_size-1), -10000.)
+        init_alphas = torch.full((batch_size, self.tagset_size-1), -10000.).to(device)
         # START_TAG has all of the score.
 
         init_alphas[:, self.tag_to_ix[START_TAG]] = 0
@@ -86,7 +88,7 @@ class BiLSTM_CRF(nn.Module):
         forward_var = init_alphas
 
 
-        forward_var_table = torch.zeros((len(lengths), lengths[0], self.tagset_size - 1))
+        forward_var_table = torch.zeros((len(lengths), lengths[0], self.tagset_size - 1)).to(device)
         # Iterate through the sentence
         for i in range(lengths[0]):
             feat = feats[:, i, :]
@@ -114,13 +116,14 @@ class BiLSTM_CRF(nn.Module):
 
             forward_var_table[:, i, :] = forward_var
         index = torch.tensor(lengths).reshape(len(lengths), 1, 1).repeat(1, 1, self.tagset_size - 1) - 1
-        final_forward_var = torch.gather(forward_var_table, dim=1, index=index)
+        final_forward_var = torch.gather(forward_var_table, dim=1, index=index.to(device))
         terminal_var = final_forward_var + self.transitions[self.tag_to_ix[STOP_TAG]]
         terminal_var = terminal_var.squeeze()
         alpha = log_sum_exp(terminal_var).squeeze(1)
         return alpha
 
     def _get_lstm_features(self, sentence,lengths):
+        sentence = sentence.to(device)
         self.hidden = self.init_hidden()
         if len(sentence)>1:
             embeds = self.word_embeds(sentence)
@@ -140,9 +143,9 @@ class BiLSTM_CRF(nn.Module):
     def _score_sentence(self, feats, tags, lengths):
         # Gives the score of a provided tag sequence
         cre, cre_maxtrix = self.mask_maxtric(lengths)
-        score = torch.zeros((feats.size()[0], 1))
-        start = torch.ones((feats.size()[0], 1), dtype=torch.long)*self.tag_to_ix[START_TAG]
-        tags = torch.cat([start, tags], dim=1)
+        score = torch.zeros((feats.size()[0], 1)).to(device)
+        start = torch.ones((feats.size()[0], 1), dtype=torch.long).to(device)*self.tag_to_ix[START_TAG]
+        tags = torch.cat([start, tags], dim=1).to(device)
         for i in range(lengths[0]):
 
             feat = feats[:,i, :]
@@ -153,7 +156,7 @@ class BiLSTM_CRF(nn.Module):
             emit_ = torch.gather(feat,1,idxs)
             emit = cre[:, i].unsqueeze(1) * emit_
             score = score + trans +emit
-        last_tags = torch.gather(tags, 1, torch.tensor(lengths).unsqueeze(1))
+        last_tags = torch.gather(tags, 1, torch.tensor(lengths,device=device).unsqueeze(1))
         last_score = self.transitions[self.tag_to_ix[STOP_TAG], last_tags]
         score = score + last_score
         return score.squeeze(1)
@@ -177,7 +180,7 @@ class BiLSTM_CRF(nn.Module):
             cre[i][:lens] = 1
             cre_maxtrix[i][lens-1:] = one
 
-        return cre,cre_maxtrix
+        return cre.to(device),cre_maxtrix.to(device)
 
 
 
@@ -188,13 +191,13 @@ class BiLSTM_CRF(nn.Module):
         # Initialize the viterbi variables in log space
 
         batch_size = feats.size()[0]
-        init_vvars = torch.full((batch_size, self.tagset_size-1), -10000.)
+        init_vvars = torch.full((batch_size, self.tagset_size-1), -10000.).to(device)
         init_vvars[:, self.tag_to_ix[START_TAG]] = 0
         backpointers = []
 
         # forward_var at step i holds the viterbi variables for step i-1
         forward_var = init_vvars
-        forward_var_table = torch.zeros((len(lengths),lengths[0],self.tagset_size-1))
+        forward_var_table = torch.zeros((len(lengths),lengths[0],self.tagset_size-1)).to(device)
         for i in range(lengths[0]):
             feat = feats[:,i,:]
             bptrs_t = []  # holds the backpointers for this step
@@ -220,7 +223,7 @@ class BiLSTM_CRF(nn.Module):
             forward_var_table[:, i, :] = forward_var
             backpointers.append(torch.cat(bptrs_t, 1))
         index = torch.tensor(lengths).reshape(len(lengths),1,1).repeat(1,1,self.tagset_size-1)-1
-        final_forward_var = torch.gather(forward_var_table,dim=1,index=index)
+        final_forward_var = torch.gather(forward_var_table,dim=1,index=index.to(device))
 
         # Transition to STOP_TAG
         terminal_var = final_forward_var + self.transitions[self.tag_to_ix[STOP_TAG]]
@@ -233,8 +236,8 @@ class BiLSTM_CRF(nn.Module):
             return path_score,[]
         best_path = [best_tag_id]
 
-        backpointers_mat = torch.cat(backpointers,1).reshape(feats.size()[0],-1,self.tagset_size-1) #
-        backpointers_mat = torch.cat([backpointers_mat,torch.ones(len(lengths),lengths[0],1).long()*(self.tagset_size-1)],-1) #给每一个backpointers加一个padding
+        backpointers_mat = torch.cat(backpointers,1).to(device).reshape(feats.size()[0],-1,self.tagset_size-1) #
+        backpointers_mat = torch.cat([backpointers_mat,torch.ones(len(lengths),lengths[0],1,device=device).long()*(self.tagset_size-1)],-1) #给每一个backpointers加一个padding
 
         for i,length in enumerate(lengths):
             backpointers_mat[i][lengths[0]-length:]=backpointers_mat.clone()[i][:length]
@@ -316,21 +319,20 @@ if __name__ == '__main__':
     tag_to_ix = {"B": 0, "I": 1, "O": 2, START_TAG: 3, STOP_TAG: 4, "pad":5}
 
     model = BiLSTM_CRF(len(word_to_ix), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
-
+    model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-4)
 
     # Check predictions before training
     with torch.no_grad():
         precheck_sent,lengths,idx_sort = prepare_sequence([training_data[0][0],training_data[1][0]], word_to_ix)
         # precheck_sent,lengths,idx_sort = prepare_sequence(training_data[0][0], word_to_ix)
-        precheck_tags = [torch.tensor([tag_to_ix[t] for t in tags],dtype=torch.long) for tags in [training_data[0][1],training_data[1][1]]]
+        precheck_tags = [torch.tensor([tag_to_ix[t] for t in tags],dtype=torch.long,device=device) for tags in [training_data[0][1],training_data[1][1]]]
         if len(precheck_sent)>1:
             precheck_tags = pad_sequence(precheck_tags,batch_first=True)
-        print(model(precheck_sent,lengths,mode="train"))
+        print(model(precheck_sent.to(device),lengths,mode="train"))
 
     # Make sure prepare_sequence from earlier in the LSTM section is loaded
-    if use_gpu:
-        model = model.cuda()
+
     import time
     start_time = time.time()
     for epoch in range(
@@ -349,13 +351,13 @@ if __name__ == '__main__':
         targets = pad_sequence(targets,batch_first=True)[idx_sort]
 
         # Step 3. Run our forward pass.
-        if use_gpu:
-            sentence_in = sentence_in.cuda()
-            targets = targets.cuda()
-        loss = model.neg_log_likelihood(sentence_in, targets,lengths)
-        if use_gpu:
-
-            loss=loss.cuda()
+        # if use_gpu:
+        #     sentence_in = sentence_in.cuda()
+        #     targets = targets.cuda()
+        loss = model.neg_log_likelihood(sentence_in.to(device), targets.to(device),lengths)
+        # if use_gpu:
+        #
+        #     loss=loss.cuda()
 
         # Step 4. Compute the loss, gradients, and update the parameters by
         # calling optimizer.step()
@@ -366,6 +368,6 @@ if __name__ == '__main__':
     # model.load_state_dict(torch.load("./bi_crf.pt"))
     with torch.no_grad():
         precheck_sent,lenghts,_ = prepare_sequence([training_data[0][0]], word_to_ix)
-        print(model(precheck_sent,lenghts,mode="dev"))
+        print(model(precheck_sent.to(device),lenghts,mode="dev"))
     print("耗时:",time.time()-start_time)
     # We got it!

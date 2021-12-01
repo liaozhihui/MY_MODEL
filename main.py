@@ -1,8 +1,11 @@
 from NerDataLoader import prepare_copus, NerDataset, collate_fn, DataLoader,validator
 from batch_bilstm_crf import *
 import torch
+import time
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-
+# device = torch.device("cpu")
+print(device)
 file_path = "./ResumeNER/train.char.bmes"
 test_file_path = "./ResumeNER/test.char.bmes"
 dev_file_path = "./ResumeNER/dev.char.bmes"
@@ -16,6 +19,7 @@ dataLoader = DataLoader(dataset=nerdataset, batch_size=64, shuffle=True, drop_la
 devLoader = DataLoader(dataset= devdataset,batch_size=len(devdataset),drop_last=False,collate_fn=collate_fn)
 
 model = BiLSTM_CRF(len(word_to_ix), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
+model.to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-4)
 
 
@@ -33,14 +37,15 @@ def evaluate(model,devDataLoader):
 best_val_loss = 1000
 for i in range(30):
     j=1
+    start_time = time.time()
     model.train()
     for dataiter in dataLoader:
         model.zero_grad()
         x_trains, tag_trains = dataiter
         sentence_in, lengths, idx_sort = prepare_sequence(x_trains, word_to_ix)
-        targets = [torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long) for tags in tag_trains]
+        targets = [torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long,device=device) for tags in tag_trains]
         targets = pad_sequence(targets, batch_first=True)[idx_sort]
-        loss = model.neg_log_likelihood(sentence_in, targets, lengths)
+        loss = model.neg_log_likelihood(sentence_in.to(device), targets.to(device), lengths)
         loss.backward()
         optimizer.step()
         print(f"epoch {i+1}, batch_{j}: Loss:{loss:.4f}")
@@ -50,6 +55,7 @@ for i in range(30):
         torch.save(model.state_dict(), "./bi_crf.pt")
         best_val_loss = val_loss
         print(f"epoch {i+1},val_loss:{best_val_loss:.4f}")
+    print("耗时:", time.time() - start_time)
 
 with torch.no_grad():
     print(tag_list[0])
