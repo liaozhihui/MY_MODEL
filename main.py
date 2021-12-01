@@ -11,11 +11,24 @@ word_to_ix, tag_to_ix, word_list, tag_list = prepare_copus(file_path)
 test_word_to_ix, test_tag_to_ix, test_word_list, test_tag_list = prepare_copus(test_file_path)
 ix_to_tag = dict(zip(tag_to_ix.values(),tag_to_ix.keys()))
 nerdataset = NerDataset(file_path)
-
+devdataset = NerDataset(dev_file_path)
 dataLoader = DataLoader(dataset=nerdataset, batch_size=64, shuffle=True, drop_last=True, collate_fn=collate_fn)
+devLoader = DataLoader(dataset= devdataset,batch_size=len(devdataset),drop_last=False,collate_fn=collate_fn)
 
 model = BiLSTM_CRF(len(word_to_ix), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
 optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-4)
+
+
+
+def evaluate(model,devDataLoader):
+    model.eval()
+
+    with torch.no_grad:
+        for dataiter in devDataLoader:
+            sentence_in, lengths, idx_sort = prepare_sequence(x_trains, word_to_ix)
+            targets = [torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long) for tags in tag_trains]
+            targets = pad_sequence(targets, batch_first=True)[idx_sort]
+            result = model(precheck_sent, lenghts, mode="dev")
 
 best_val_loss = 1000
 for i in range(30):
